@@ -1,333 +1,433 @@
-
 (() => {
   'use strict';
 
   const SUPABASE_URL = 'https://yicbwzyjldybwgchkzsm.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_t-6KXoWq43KnaNsnB4OZBw_s3jLQSWF';
-
   const TABLE = 'site_reviews_google';
   const BUCKET = 'review-photos';
 
-  // Tránh tạo giao diện hai lần
-  if (document.getElementById('htGoogleReviews')) return;
+  let db = null;
+  let currentUser = null;
+  let ownReview = null;
+  let selectedPhoto = null;
 
-  const style = document.createElement('style');
-  style.textContent = `
-    #htGoogleReviews { padding: 48px 0; background: #f5f7fb; }
-    #htGoogleReviews .ht-review-wrap { max-width: 1100px; margin: auto; padding: 0 18px; }
-    #htGoogleReviews .ht-review-title { text-align: center; margin-bottom: 25px; }
-    #htGoogleReviews .ht-review-title h2 { color: #17365d; margin: 8px 0; }
-    #htGoogleReviews .ht-review-summary { text-align: center; background: white; padding: 20px; border-radius: 12px; margin-bottom: 22px; }
-    #htGoogleReviews .ht-big-stars { color: #f5a623; font-size: 25px; letter-spacing: 2px; }
-    #htGoogleReviews .ht-review-panel { background: white; border-radius: 12px; padding: 22px; margin-bottom: 22px; box-shadow: 0 3px 14px #0000000c; }
-    #htGoogleReviews .ht-review-btn { border: 0; border-radius: 7px; padding: 11px 17px; background: #17365d; color: white; font-weight: bold; cursor: pointer; }
-    #htGoogleReviews .ht-review-btn:disabled { opacity: .55; cursor: wait; }
-    #htGoogleReviews .ht-review-btn.secondary { background: #64748b; }
-    #htGoogleReviews .ht-review-form label { display: block; font-weight: 600; margin: 13px 0 6px; }
-    #htGoogleReviews .ht-review-form textarea, #htGoogleReviews .ht-review-form input[type="file"] { width: 100%; box-sizing: border-box; }
-    #htGoogleReviews .ht-review-form textarea { min-height: 100px; padding: 11px; border: 1px solid #ccd3df; border-radius: 7px; font: inherit; }
-    #htGoogleReviews .ht-star-picker { display: flex; gap: 6px; margin: 7px 0; }
-    #htGoogleReviews .ht-star-picker button { background: none; border: 0; padding: 0; font-size: 35px; color: #cbd5e1; cursor: pointer; }
-    #htGoogleReviews .ht-star-picker button.selected { color: #f5a623; }
-    #htGoogleReviews .ht-review-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-    #htGoogleReviews .ht-review-card { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 3px 14px #0000000c; overflow-wrap: anywhere; }
-    #htGoogleReviews .ht-review-person { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    #htGoogleReviews .ht-review-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; background: #e2e8f0; }
-    #htGoogleReviews .ht-review-name { font-weight: bold; color: #17365d; }
-    #htGoogleReviews .ht-review-date { font-size: 12px; color: #64748b; margin-top: 3px; }
-    #htGoogleReviews .ht-review-card-stars { color: #f5a623; margin: 7px 0; }
-    #htGoogleReviews .ht-review-photo { display: block; max-width: 100%; max-height: 300px; object-fit: contain; margin-top: 12px; border-radius: 8px; }
-    #htGoogleReviews .ht-review-message { white-space: pre-wrap; line-height: 1.6; }
-    #htGoogleReviews .ht-review-status { margin-top: 12px; color: #334155; overflow-wrap: anywhere; }
-    #htGoogleReviews .ht-review-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    @media(max-width:600px) {
-      #htGoogleReviews { padding: 32px 0; }
-      #htGoogleReviews .ht-review-panel { padding: 16px; }
-    }
-  `;
-  document.head.appendChild(style);
+  // Tải thư viện Supabase.
+  function loadSupabase() {
+    return new Promise((resolve, reject) => {
+      if (window.supabase?.createClient) {
+        resolve();
+        return;
+      }
 
-  const section = document.createElement('section');
-  section.id = 'htGoogleReviews';
-  section.innerHTML = `
-    <div class="ht-review-wrap">
-      <div class="ht-review-title">
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      script.onload = resolve;
+      script.onerror = () => reject(
+        new Error('Không tải được thư viện kết nối. Vui lòng tải lại trang.')
+      );
+      document.head.appendChild(script);
+    });
+  }
+
+  function createReviewSection() {
+    if (document.getElementById('htGoogleReviews')) return;
+
+    const section = document.createElement('section');
+    section.id = 'htGoogleReviews';
+    section.className = 'section';
+    section.innerHTML = `
+      <div class="container">
         <span class="section-kicker">Ý KIẾN HỌC VIÊN</span>
-        <h2>ĐÁNH GIÁ HƯNG THỊNH</h2>
-        <p>Chia sẻ trải nghiệm học tập của bạn với trung tâm.</p>
-      </div>
+        <h2 id="danh-gia-hung-thinh">ĐÁNH GIÁ HƯNG THỊNH</h2>
+        <p class="ht-review-intro">
+          Đăng nhập Google để chia sẻ trải nghiệm học tập của bạn.
+          Mỗi tài khoản Google có thể gửi một đánh giá và cập nhật đánh giá của mình.
+        </p>
 
-      <div class="ht-review-summary">
-        <div class="ht-big-stars" id="htReviewAverageStars">☆☆☆☆☆</div>
-        <div><strong id="htReviewAverage">Chưa có đánh giá</strong></div>
-        <div id="htReviewCount">Đang tải đánh giá...</div>
-      </div>
+        <div class="ht-review-summary">
+          <div class="ht-review-average" id="htReviewAverage">—</div>
+          <div>
+            <div class="ht-review-stars" id="htReviewAverageStars">☆☆☆☆☆</div>
+            <div id="htReviewTotal">Đang tải đánh giá...</div>
+          </div>
+        </div>
 
-      <div class="ht-review-panel">
-        <div id="htReviewLoggedOut">
-          <h3>Đánh giá bằng tài khoản Google</h3>
-          <p>Bạn cần đăng nhập Google để gửi hoặc sửa đánh giá của mình.</p>
-          <button type="button" class="ht-review-btn" id="htGoogleLogin">
-            Đăng nhập bằng Google
+        <div class="ht-review-login" id="htReviewLogin">
+          <p>Vui lòng đăng nhập bằng Google trước khi gửi đánh giá.</p>
+          <button type="button" class="ht-review-button" id="htGoogleLogin">
+            <span aria-hidden="true">G</span> Đăng nhập bằng Google
           </button>
         </div>
 
-        <div id="htReviewLoggedIn" hidden>
-          <p>Đang đăng nhập: <strong id="htReviewUserName"></strong></p>
-          <div class="ht-review-actions">
-            <button type="button" class="ht-review-btn secondary" id="htGoogleLogout">
+        <div class="ht-review-user" id="htReviewUser" hidden>
+          <div class="ht-review-user-line">
+            <span id="htReviewSignedInAs"></span>
+            <button type="button" class="ht-review-button ht-review-secondary" id="htGoogleLogout">
               Đăng xuất
             </button>
           </div>
 
-          <form class="ht-review-form" id="htReviewForm">
-            <h3 id="htReviewFormTitle">Viết đánh giá của bạn</h3>
+          <form id="htReviewForm">
+            <h3 id="htReviewFormTitle">Gửi đánh giá của bạn</h3>
 
-            <label>Chọn số sao</label>
-            <div class="ht-star-picker" id="htReviewStarPicker" aria-label="Chọn số sao">
-              <button type="button" data-star="1" aria-label="1 sao">★</button>
-              <button type="button" data-star="2" aria-label="2 sao">★</button>
-              <button type="button" data-star="3" aria-label="3 sao">★</button>
-              <button type="button" data-star="4" aria-label="4 sao">★</button>
-              <button type="button" data-star="5" aria-label="5 sao">★</button>
-            </div>
+            <label for="htReviewRating">Bạn đánh giá trung tâm mấy sao?</label>
+            <select id="htReviewRating" required>
+              <option value="5">5 sao — Rất hài lòng</option>
+              <option value="4">4 sao — Hài lòng</option>
+              <option value="3">3 sao — Bình thường</option>
+              <option value="2">2 sao — Chưa hài lòng</option>
+              <option value="1">1 sao — Không hài lòng</option>
+            </select>
 
-            <label for="htReviewText">Nhận xét</label>
-            <textarea id="htReviewText" maxlength="2000"
-              placeholder="Chia sẻ cảm nhận của bạn về trung tâm..." required></textarea>
+            <label for="htReviewText">Nội dung nhận xét</label>
+            <textarea id="htReviewText" rows="4" maxlength="2000"
+              placeholder="Chia sẻ trải nghiệm học tập của bạn..." required></textarea>
 
             <label for="htReviewPhoto">Ảnh đính kèm (không bắt buộc)</label>
             <input id="htReviewPhoto" type="file" accept="image/jpeg,image/png,image/webp">
-            <small>Chỉ nhận JPG, PNG hoặc WebP, tối đa 5 MB.</small>
+            <small class="ht-review-help">Chấp nhận JPG, PNG hoặc WEBP; tối đa 5 MB.</small>
 
-            <div id="htReviewExistingPhoto"></div>
+            <div id="htReviewFormStatus" class="ht-review-status" role="status"></div>
 
-            <div class="ht-review-actions" style="margin-top:16px">
-              <button class="ht-review-btn" id="htReviewSubmit" type="submit">
-                Gửi đánh giá
-              </button>
-            </div>
-            <div class="ht-review-status" id="htReviewFormStatus" role="status"></div>
+            <button type="submit" class="ht-review-button" id="htReviewSubmit">
+              Gửi đánh giá
+            </button>
           </form>
         </div>
+
+        <div class="ht-review-list-heading">
+          <h3>Đánh giá từ học viên</h3>
+        </div>
+        <div id="htReviewList" class="ht-review-list">
+          <p>Đang tải đánh giá...</p>
+        </div>
       </div>
+    `;
 
-      <h3>Nhận xét từ học viên</h3>
-      <div class="ht-review-list" id="htReviewList">
-        <p>Đang tải đánh giá...</p>
-      </div>
-    </div>
-  `;
+    const statsSection = document.querySelector('.stats-section');
+    const registerSection = document.querySelector('#dang-ky');
 
-  const statsSection = document.querySelector('.stats-section');
-  if (statsSection) {
-    statsSection.insertAdjacentElement('afterend', section);
-  } else {
-    document.querySelector('main')?.appendChild(section);
+    if (statsSection) {
+      statsSection.insertAdjacentElement('afterend', section);
+    } else if (registerSection) {
+      registerSection.insertAdjacentElement('beforebegin', section);
+    } else {
+      document.querySelector('main')?.appendChild(section);
+    }
+
+    addReviewStyles();
+    bindUiEvents();
   }
 
-  let db = null;
-  let currentUser = null;
-  let currentReview = null;
-  let selectedStars = 5;
+  function addReviewStyles() {
+    if (document.getElementById('htReviewStyles')) return;
 
-  const $ = id => document.getElementById(id);
-
-  function setStatus(message) {
-    $('htReviewFormStatus').textContent = message;
+    const style = document.createElement('style');
+    style.id = 'htReviewStyles';
+    style.textContent = `
+      #htGoogleReviews { scroll-margin-top: 24px; }
+      #htGoogleReviews .ht-review-intro {
+        max-width: 760px;
+        color: #555;
+        line-height: 1.7;
+      }
+      #htGoogleReviews .ht-review-summary {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin: 24px 0;
+        padding: 20px;
+        border: 1px solid #e4e7ec;
+        border-radius: 14px;
+        background: #fff;
+      }
+      #htGoogleReviews .ht-review-average {
+        font-size: 34px;
+        font-weight: 800;
+        color: #182230;
+      }
+      #htGoogleReviews .ht-review-stars {
+        color: #f5a623;
+        font-size: 23px;
+        letter-spacing: 2px;
+      }
+      #htGoogleReviews .ht-review-login,
+      #htGoogleReviews .ht-review-user {
+        margin: 20px 0;
+        padding: 22px;
+        border: 1px solid #e4e7ec;
+        border-radius: 14px;
+        background: #fff;
+      }
+      #htGoogleReviews .ht-review-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        border: 0;
+        border-radius: 8px;
+        padding: 12px 18px;
+        background: #b42318;
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      #htGoogleReviews .ht-review-button:hover { opacity: .9; }
+      #htGoogleReviews .ht-review-button:disabled {
+        opacity: .6;
+        cursor: wait;
+      }
+      #htGoogleReviews .ht-review-secondary {
+        background: #475467;
+        padding: 8px 12px;
+      }
+      #htGoogleReviews .ht-review-user-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+      }
+      #htGoogleReviews form {
+        display: grid;
+        gap: 10px;
+        max-width: 760px;
+      }
+      #htGoogleReviews form label { font-weight: 700; margin-top: 8px; }
+      #htGoogleReviews form select,
+      #htGoogleReviews form textarea,
+      #htGoogleReviews form input[type="file"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 11px;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        background: #fff;
+        color: #101828;
+        font: inherit;
+      }
+      #htGoogleReviews .ht-review-help {
+        color: #667085;
+        font-size: 13px;
+      }
+      #htGoogleReviews .ht-review-status {
+        min-height: 20px;
+        color: #344054;
+        overflow-wrap: anywhere;
+      }
+      #htGoogleReviews .ht-review-list-heading { margin-top: 32px; }
+      #htGoogleReviews .ht-review-list {
+        display: grid;
+        gap: 16px;
+        margin-top: 16px;
+      }
+      #htGoogleReviews .ht-review-card {
+        padding: 20px;
+        border: 1px solid #e4e7ec;
+        border-radius: 14px;
+        background: #fff;
+        overflow-wrap: anywhere;
+      }
+      #htGoogleReviews .ht-review-card-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      #htGoogleReviews .ht-review-avatar {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: #eaecf0;
+      }
+      #htGoogleReviews .ht-review-name { font-weight: 800; }
+      #htGoogleReviews .ht-review-date {
+        color: #667085;
+        font-size: 13px;
+        margin-top: 3px;
+      }
+      #htGoogleReviews .ht-review-card-stars {
+        margin: 12px 0 8px;
+        color: #f5a623;
+        font-size: 20px;
+      }
+      #htGoogleReviews .ht-review-card-text {
+        white-space: pre-wrap;
+        line-height: 1.7;
+      }
+      #htGoogleReviews .ht-review-photo {
+        display: block;
+        max-width: 100%;
+        max-height: 420px;
+        margin-top: 14px;
+        border-radius: 10px;
+        object-fit: contain;
+      }
+      #htGoogleReviews [hidden] { display: none !important; }
+    `;
+    document.head.appendChild(style);
   }
 
-  function safeText(tag, className, value) {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    element.textContent = value ?? '';
-    return element;
+  function bindUiEvents() {
+    document.getElementById('htGoogleLogin').addEventListener('click', loginWithGoogle);
+    document.getElementById('htGoogleLogout').addEventListener('click', logout);
+    document.getElementById('htReviewPhoto').addEventListener('change', handlePhotoSelection);
+    document.getElementById('htReviewForm').addEventListener('submit', saveReview);
   }
 
-  function selectStars(value) {
-    selectedStars = value;
-    $('htReviewStarPicker').querySelectorAll('button').forEach(button => {
-      const selected = Number(button.dataset.star) <= value;
-      button.classList.toggle('selected', selected);
-      button.setAttribute('aria-pressed', String(selected));
-    });
+  function setStatus(message, isError = false) {
+    const el = document.getElementById('htReviewFormStatus');
+    if (!el) return;
+    el.textContent = message;
+    el.style.color = isError ? '#b42318' : '#067647';
   }
 
-  function formatDate(value) {
-    if (!value) return '';
-    const date = new Date(value);
-    return Number.isNaN(date.getTime())
-      ? ''
-      : date.toLocaleDateString('vi-VN');
+  async function loginWithGoogle() {
+    const button = document.getElementById('htGoogleLogin');
+    button.disabled = true;
+    button.textContent = 'Đang chuyển đến Google...';
+
+    try {
+      const redirectUrl = window.location.origin + window.location.pathname +
+        window.location.search + '#danh-gia-hung-thinh';
+
+      const { error } = await db.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl
+        }
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Lỗi đăng nhập Google:', error);
+      button.disabled = false;
+      button.innerHTML = '<span aria-hidden="true">G</span> Đăng nhập bằng Google';
+      alert('Không đăng nhập được Google. Vui lòng thử lại hoặc kiểm tra cấu hình Google trong Supabase.');
+    }
   }
 
-  async function loadReviews() {
-    const { data, error } = await db
-      .from(TABLE)
-      .select('user_id,display_name,avatar_url,rating,review_text,image_url,created_at,updated_at')
-      .order('created_at', { ascending: false });
+  async function logout() {
+    const { error } = await db.auth.signOut();
 
-    if (error) throw error;
-
-    const reviews = data || [];
-    const total = reviews.length;
-    const average = total
-      ? reviews.reduce((sum, review) => sum + Number(review.rating), 0) / total
-      : 0;
-
-    $('htReviewAverage').textContent = total
-      ? `${average.toFixed(1)} / 5`
-      : 'Chưa có đánh giá';
-
-    $('htReviewAverageStars').textContent = total
-      ? '★'.repeat(Math.round(average)) + '☆'.repeat(5 - Math.round(average))
-      : '☆☆☆☆☆';
-
-    $('htReviewCount').textContent = `${total.toLocaleString('vi-VN')} lượt đánh giá`;
-
-    const list = $('htReviewList');
-    list.replaceChildren();
-
-    if (!total) {
-      list.appendChild(safeText('p', '', 'Chưa có đánh giá nào. Hãy là người đầu tiên chia sẻ cảm nhận!'));
+    if (error) {
+      console.error('Lỗi đăng xuất:', error);
+      alert('Chưa đăng xuất được. Vui lòng thử lại.');
       return;
     }
 
-    reviews.forEach(review => {
-      const card = document.createElement('article');
-      card.className = 'ht-review-card';
-
-      const person = document.createElement('div');
-      person.className = 'ht-review-person';
-
-      const avatar = document.createElement('img');
-      avatar.className = 'ht-review-avatar';
-      avatar.alt = '';
-      avatar.src = review.avatar_url || '';
-      avatar.referrerPolicy = 'no-referrer';
-      avatar.onerror = () => {
-        avatar.removeAttribute('src');
-        avatar.style.display = 'none';
-      };
-      person.appendChild(avatar);
-
-      const identity = document.createElement('div');
-      identity.appendChild(safeText('div', 'ht-review-name', review.display_name || 'Học viên'));
-      identity.appendChild(safeText('div', 'ht-review-date', formatDate(review.created_at)));
-      person.appendChild(identity);
-      card.appendChild(person);
-
-      card.appendChild(safeText(
-        'div',
-        'ht-review-card-stars',
-        '★'.repeat(Math.max(0, Math.min(5, Number(review.rating)))) +
-          '☆'.repeat(5 - Math.max(0, Math.min(5, Number(review.rating))))
-      ));
-
-      if (review.review_text) {
-        card.appendChild(safeText('p', 'ht-review-message', review.review_text));
-      }
-
-      if (review.image_url) {
-        const photo = document.createElement('a');
-        photo.href = review.image_url;
-        photo.target = '_blank';
-        photo.rel = 'noopener noreferrer';
-
-        const img = document.createElement('img');
-        img.className = 'ht-review-photo';
-        img.src = review.image_url;
-        img.alt = 'Ảnh đính kèm đánh giá';
-        img.loading = 'lazy';
-        photo.appendChild(img);
-        card.appendChild(photo);
-      }
-
-      if (currentUser && review.user_id === currentUser.id) {
-        card.appendChild(safeText('small', '', 'Đây là đánh giá của bạn.'));
-      }
-
-      list.appendChild(card);
-    });
+    currentUser = null;
+    ownReview = null;
+    selectedPhoto = null;
+    updateAuthUi();
+    await loadReviews();
   }
 
-  async function loadOwnReview() {
-    currentReview = null;
-    $('htReviewText').value = '';
-    $('htReviewPhoto').value = '';
-    $('htReviewExistingPhoto').replaceChildren();
-    $('htReviewFormTitle').textContent = 'Viết đánh giá của bạn';
-    $('htReviewSubmit').textContent = 'Gửi đánh giá';
-    selectStars(5);
+  function updateAuthUi() {
+    const loginBox = document.getElementById('htReviewLogin');
+    const userBox = document.getElementById('htReviewUser');
+    const signedInAs = document.getElementById('htReviewSignedInAs');
+    const formTitle = document.getElementById('htReviewFormTitle');
+    const submitButton = document.getElementById('htReviewSubmit');
 
-    const { data, error } = await db
-      .from(TABLE)
-      .select('user_id,display_name,avatar_url,rating,review_text,image_url,created_at,updated_at')
-      .eq('user_id', currentUser.id)
-      .maybeSingle();
-
-    if (error) throw error;
-
-    if (!data) return;
-
-    currentReview = data;
-    $('htReviewText').value = data.review_text || '';
-    $('htReviewFormTitle').textContent = 'Sửa đánh giá của bạn';
-    $('htReviewSubmit').textContent = 'Lưu thay đổi';
-    selectStars(Number(data.rating) || 5);
-
-    if (data.image_url) {
-      const note = safeText('p', '', 'Bạn đã có ảnh đính kèm. Chọn ảnh mới nếu muốn thay ảnh.');
-      const link = document.createElement('a');
-      link.href = data.image_url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Xem ảnh hiện tại';
-      $('htReviewExistingPhoto').append(note, link);
-    }
-  }
-
-  async function updateAuthUI(session) {
-    currentUser = session?.user || null;
-    $('htReviewLoggedOut').hidden = !!currentUser;
-    $('htReviewLoggedIn').hidden = !currentUser;
+    loginBox.hidden = Boolean(currentUser);
+    userBox.hidden = !currentUser;
 
     if (!currentUser) {
-      currentReview = null;
+      signedInAs.textContent = '';
       return;
     }
 
     const metadata = currentUser.user_metadata || {};
-    $('htReviewUserName').textContent =
-      metadata.full_name || metadata.name || currentUser.email || 'Tài khoản Google';
+    const displayName =
+      metadata.full_name ||
+      metadata.name ||
+      currentUser.email ||
+      'Học viên';
 
-    await loadOwnReview();
+    signedInAs.textContent = `Đã đăng nhập: ${displayName}`;
+    formTitle.textContent = ownReview
+      ? 'Chỉnh sửa đánh giá của bạn'
+      : 'Gửi đánh giá của bạn';
+    submitButton.textContent = ownReview
+      ? 'Cập nhật đánh giá'
+      : 'Gửi đánh giá';
+
+    if (ownReview) {
+      document.getElementById('htReviewRating').value = String(ownReview.rating);
+      document.getElementById('htReviewText').value = ownReview.review_text || '';
+    } else {
+      document.getElementById('htReviewRating').value = '5';
+      document.getElementById('htReviewText').value = '';
+    }
+
+    document.getElementById('htReviewPhoto').value = '';
+    selectedPhoto = null;
+    setStatus(ownReview
+      ? 'Bạn đã có đánh giá. Bạn có thể cập nhật nội dung bên dưới.'
+      : 'Bạn có thể gửi đánh giá sau khi điền thông tin.');
+  }
+
+  function handlePhotoSelection(event) {
+    const file = event.target.files?.[0] || null;
+    selectedPhoto = file;
+
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    if (!allowedTypes.includes(file.type)) {
+      selectedPhoto = null;
+      event.target.value = '';
+      setStatus('Ảnh phải là JPG, PNG hoặc WEBP.', true);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      selectedPhoto = null;
+      event.target.value = '';
+      setStatus('Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.', true);
+      return;
+    }
+
+    setStatus(`Đã chọn ảnh: ${file.name}`);
+  }
+
+  async function loadOwnReview() {
+    ownReview = null;
+    if (!currentUser) return;
+
+    const { data, error } = await db
+      .from(TABLE)
+      .select('id,user_id,display_name,avatar_url,rating,review_text,image_url,created_at,updated_at')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Lỗi tải đánh giá cá nhân:', error);
+      setStatus('Chưa tải được đánh giá của bạn. Vui lòng tải lại trang.', true);
+      return;
+    }
+
+    ownReview = data || null;
   }
 
   async function uploadPhoto(file) {
-    if (!file) return currentReview?.image_url || null;
-
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      throw new Error('Ảnh phải có định dạng JPG, PNG hoặc WebP.');
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      throw new Error('Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.');
-    }
-
-    const ext = ({
-      'image/jpeg': 'jpg',
-      'image/png': 'png',
-      'image/webp': 'webp'
-    })[file.type];
-
-    const path = `${currentUser.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+    const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const safeExtension = ['jpg', 'jpeg', 'png', 'webp'].includes(extension)
+      ? extension
+      : 'jpg';
+    const path = `${currentUser.id}/${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
 
     const { error } = await db.storage
       .from(BUCKET)
       .upload(path, file, {
-        contentType: file.type,
-        upsert: false
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type
       });
 
     if (error) throw error;
@@ -338,32 +438,54 @@
 
   async function saveReview(event) {
     event.preventDefault();
+
     if (!currentUser) {
-      setStatus('Vui lòng đăng nhập Google trước.');
+      setStatus('Bạn cần đăng nhập Google trước khi gửi đánh giá.', true);
       return;
     }
 
-    const reviewText = $('htReviewText').value.trim();
+    const rating = Number(document.getElementById('htReviewRating').value);
+    const reviewText = document.getElementById('htReviewText').value.trim();
+    const submitButton = document.getElementById('htReviewSubmit');
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      setStatus('Vui lòng chọn số sao từ 1 đến 5.', true);
+      return;
+    }
+
     if (!reviewText) {
-      setStatus('Vui lòng nhập nội dung nhận xét.');
+      setStatus('Vui lòng nhập nội dung nhận xét.', true);
       return;
     }
 
-    const submit = $('htReviewSubmit');
-    submit.disabled = true;
-    setStatus('Đang lưu đánh giá...');
+    if (reviewText.length > 2000) {
+      setStatus('Nội dung nhận xét không được quá 2.000 ký tự.', true);
+      return;
+    }
+
+    submitButton.disabled = true;
+    setStatus('Đang lưu đánh giá, vui lòng chờ...');
 
     try {
       const metadata = currentUser.user_metadata || {};
-      const file = $('htReviewPhoto').files[0] || null;
-      const imageUrl = await uploadPhoto(file);
+      const displayName =
+        metadata.full_name ||
+        metadata.name ||
+        currentUser.email ||
+        'Học viên';
+      const avatarUrl = metadata.avatar_url || metadata.picture || null;
 
-      const review = {
+      let imageUrl = ownReview?.image_url || null;
+
+      if (selectedPhoto) {
+        imageUrl = await uploadPhoto(selectedPhoto);
+      }
+
+      const record = {
         user_id: currentUser.id,
-        display_name: metadata.full_name || metadata.name ||
-          currentUser.email || 'Học viên',
-        avatar_url: metadata.avatar_url || metadata.picture || null,
-        rating: selectedStars,
+        display_name: displayName,
+        avatar_url: avatarUrl,
+        rating,
         review_text: reviewText,
         image_url: imageUrl,
         updated_at: new Date().toISOString()
@@ -371,90 +493,201 @@
 
       const { error } = await db
         .from(TABLE)
-        .upsert(review, { onConflict: 'user_id' });
+        .upsert(record, { onConflict: 'user_id' });
 
       if (error) throw error;
 
-      setStatus('Đã lưu đánh giá thành công!');
-      await loadReviews();
+      setStatus('Đã lưu đánh giá thành công.');
       await loadOwnReview();
-      $('htReviewPhoto').value = '';
+      updateAuthUi();
+      await loadReviews();
     } catch (error) {
       console.error('Lỗi lưu đánh giá:', error);
-      setStatus('Chưa lưu được đánh giá: ' + (error.message || 'Vui lòng thử lại.'));
+      setStatus(
+        'Chưa lưu được đánh giá. Vui lòng thử lại. Nếu vẫn lỗi, hãy kiểm tra bảng site_reviews_google và quyền của Supabase.',
+        true
+      );
     } finally {
-      submit.disabled = false;
+      submitButton.disabled = false;
     }
+  }
+
+  function addText(parent, tagName, className, text) {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    element.textContent = text || '';
+    parent.appendChild(element);
+    return element;
+  }
+
+  function renderReviewCard(review) {
+    const card = document.createElement('article');
+    card.className = 'ht-review-card';
+
+    const head = document.createElement('div');
+    head.className = 'ht-review-card-head';
+
+    if (review.avatar_url) {
+      const avatar = document.createElement('img');
+      avatar.className = 'ht-review-avatar';
+      avatar.src = review.avatar_url;
+      avatar.alt = '';
+      avatar.referrerPolicy = 'no-referrer';
+      avatar.onerror = () => avatar.remove();
+      head.appendChild(avatar);
+    } else {
+      const avatar = document.createElement('div');
+      avatar.className = 'ht-review-avatar';
+      avatar.setAttribute('aria-hidden', 'true');
+      avatar.style.display = 'grid';
+      avatar.style.placeItems = 'center';
+      avatar.textContent = '👤';
+      head.appendChild(avatar);
+    }
+
+    const identity = document.createElement('div');
+    addText(identity, 'div', 'ht-review-name', review.display_name || 'Học viên');
+
+    const dateValue = review.updated_at || review.created_at;
+    let dateText = '';
+
+    if (dateValue) {
+      const date = new Date(dateValue);
+      if (!Number.isNaN(date.getTime())) {
+        dateText = date.toLocaleDateString('vi-VN');
+      }
+    }
+
+    addText(identity, 'div', 'ht-review-date', dateText);
+    head.appendChild(identity);
+    card.appendChild(head);
+
+    addText(
+      card,
+      'div',
+      'ht-review-card-stars',
+      '★'.repeat(Number(review.rating)) + '☆'.repeat(5 - Number(review.rating))
+    );
+
+    addText(card, 'div', 'ht-review-card-text', review.review_text || '');
+
+    if (review.image_url) {
+      const image = document.createElement('img');
+      image.className = 'ht-review-photo';
+      image.src = review.image_url;
+      image.alt = 'Ảnh đính kèm trong đánh giá';
+      image.loading = 'lazy';
+      image.onerror = () => image.remove();
+      card.appendChild(image);
+    }
+
+    return card;
+  }
+
+  async function loadReviews() {
+    const list = document.getElementById('htReviewList');
+    const averageEl = document.getElementById('htReviewAverage');
+    const starsEl = document.getElementById('htReviewAverageStars');
+    const totalEl = document.getElementById('htReviewTotal');
+
+    list.replaceChildren();
+    addText(list, 'p', '', 'Đang tải đánh giá...');
+
+    const { data, error } = await db
+      .from(TABLE)
+      .select('user_id,display_name,avatar_url,rating,review_text,image_url,created_at,updated_at')
+      .order('updated_at', { ascending: false });
+
+    list.replaceChildren();
+
+    if (error) {
+      console.error('Lỗi tải đánh giá công khai:', error);
+      averageEl.textContent = '—';
+      starsEl.textContent = '☆☆☆☆☆';
+      totalEl.textContent = 'Chưa tải được đánh giá. Vui lòng tải lại trang.';
+      addText(list, 'p', '', 'Không thể tải đánh giá lúc này. Vui lòng thử lại sau.');
+      return;
+    }
+
+    const reviews = data || [];
+
+    if (!reviews.length) {
+      averageEl.textContent = 'Chưa có';
+      starsEl.textContent = '☆☆☆☆☆';
+      totalEl.textContent = 'Chưa có đánh giá nào';
+      addText(list, 'p', '', 'Hãy đăng nhập Google để gửi đánh giá đầu tiên.');
+      return;
+    }
+
+    const average = reviews.reduce((sum, review) => {
+      return sum + Number(review.rating || 0);
+    }, 0) / reviews.length;
+
+    averageEl.textContent = `${average.toFixed(1)} / 5`;
+    starsEl.textContent =
+      '★'.repeat(Math.round(average)) +
+      '☆'.repeat(5 - Math.round(average));
+    totalEl.textContent =
+      `${reviews.length.toLocaleString('vi-VN')} đánh giá công khai`;
+
+    reviews.forEach(review => {
+      list.appendChild(renderReviewCard(review));
+    });
+  }
+
+  async function handleAuthChange(session) {
+    currentUser = session?.user || null;
+
+    if (currentUser) {
+      await loadOwnReview();
+    } else {
+      ownReview = null;
+    }
+
+    updateAuthUi();
   }
 
   async function init() {
     try {
-      // Nạp thư viện Supabase chính thức
-      if (!window.supabase?.createClient) {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-          script.onload = resolve;
-          script.onerror = () => reject(new Error('Không tải được thư viện Supabase.'));
-          document.head.appendChild(script);
-        });
-      }
+      await loadSupabase();
 
       db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-      $('htGoogleLogin').addEventListener('click', async () => {
-        const { error } = await db.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: window.location.href.split('#')[0]
-          }
-        });
-
-        if (error) {
-          alert('Không thể đăng nhập Google: ' + error.message);
-        }
-      });
-
-      $('htGoogleLogout').addEventListener('click', async () => {
-        const { error } = await db.auth.signOut();
-        if (error) {
-          alert('Đăng xuất chưa thành công: ' + error.message);
-        }
-      });
-
-      $('htReviewStarPicker').querySelectorAll('button').forEach(button => {
-        button.addEventListener('click', () => {
-          selectStars(Number(button.dataset.star));
-        });
-      });
-
-      $('htReviewForm').addEventListener('submit', saveReview);
+      createReviewSection();
 
       const { data, error } = await db.auth.getSession();
       if (error) throw error;
 
-      await updateAuthUI(data.session);
+      await handleAuthChange(data.session);
       await loadReviews();
 
       db.auth.onAuthStateChange((_event, session) => {
-        // Tránh chờ tác vụ mạng bên trong callback xác thực
+        // Tránh gọi truy vấn Supabase trực tiếp bên trong callback xác thực.
         setTimeout(async () => {
           try {
-            await updateAuthUI(session);
+            await handleAuthChange(session);
             await loadReviews();
           } catch (error) {
-            console.error('Lỗi tải hồ sơ đánh giá:', error);
-            setStatus('Không tải được hồ sơ đánh giá. Vui lòng tải lại trang.');
+            console.error('Lỗi cập nhật trạng thái đăng nhập:', error);
           }
         }, 0);
       });
     } catch (error) {
-      console.error('Lỗi khởi tạo đánh giá:', error);
-      $('htReviewList').textContent =
-        'Chưa kết nối được hệ thống đánh giá. Vui lòng thử tải lại trang sau.';
-      $('htReviewCount').textContent = 'Lỗi kết nối';
+      console.error('Không khởi tạo được hệ thống đánh giá:', error);
+
+      const section = document.getElementById('htGoogleReviews');
+      if (section) {
+        const message = document.createElement('p');
+        message.textContent =
+          'Hệ thống đánh giá đang gặp sự cố kết nối. Vui lòng tải lại trang sau.';
+        section.querySelector('.container')?.appendChild(message);
+      }
     }
   }
 
-  init();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
 })();
