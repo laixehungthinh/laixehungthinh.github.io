@@ -3,7 +3,7 @@
 
   const SUPABASE_URL = 'https://yicbwzyjldybwgchkzsm.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_t-6KXoWq43KnaNsnB4OZBw_s3jLQSWF';
-  const TABLE = 'site_reviews_google';
+  const TABLE = 'site_review_google';
   const BUCKET = 'review-photos';
 
   let db = null;
