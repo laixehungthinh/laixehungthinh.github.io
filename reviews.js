@@ -6,7 +6,7 @@
     'https://yicbwzyjldybwgchkzsm.supabase.co';
 
   const SUPABASE_KEY =
-    'sb_publishable-t-6KXoWq43KnaNsnB4OZBw_s3jLQSWF';
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpY2J3enlqbGR5YndnY2hrenNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NTY0ODMsImV4cCI6MjEwNzUzMjQ4M30.2PGi0EeYUE_7wpuCphIZYnZCDmUBtbBqXB6IMXAAq5Y';
 
   const TABLE = 'site_reviews_google';
   const BUCKET = 'review-photos';
